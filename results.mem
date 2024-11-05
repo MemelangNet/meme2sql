@@ -1,0 +1,110 @@
+// Here are example queries and responses from the data
+
+ant == [
+	ant.letter:ord=1,
+	ant.believe:amsterdam=1,
+	ant.believe:cairo=1,
+	ant.believe:dubai=1,
+	ant.believe:edinburgh=1,
+	ant.create:amsterdam=1,
+	ant.create:bangkok=1,
+	ant.create:dubai=1,
+	ant.create:edinburgh=1,
+	ant.discover:amsterdam=1,
+	ant.discover:bangkok=1,
+	ant.discover:cairo=1,
+	ant.discover:edinburgh=1,
+	ant.explore:amsterdam=1,
+	ant.explore:bangkok=1,
+	ant.explore:cairo=1,
+	ant.explore:dubai=1
+];
+
+ant.believe == [
+	ant.believe:amsterdam=1,
+	ant.believe:cairo=1,
+	ant.believe:dubai=1,
+	ant.believe:edinburgh=1
+];
+
+ant.believe:amsterdam == [
+	ant.believe:amsterdam=1
+];
+
+.believe & .create == [
+	ant.believe:amsterdam=1,
+	ant.believe:cairo=1,
+	ant.believe:dubai=1,
+	ant.believe:edinburgh=1,
+	ant.create:amsterdam=1,
+	ant.create:bangkok=1,
+	ant.create:dubai=1,
+	ant.create:edinburgh=1,
+	// no bat
+	// no cat
+	deer.believe:amsterdam=1,
+	deer.believe:cairo=1,
+	deer.believe:dubai=1,
+	deer.believe:edinburgh=1,
+	deer.create:amsterdam=1,
+	deer.create:bangkok=1,
+	deer.create:dubai=1,
+	deer.create:edinburgh=1,
+	eagle.believe:amsterdam=1,
+	eagle.believe:cairo=1,
+	eagle.believe:dubai=1,
+	eagle.believe:edinburgh=1,
+	eagle.create:amsterdam=1,
+	eagle.create:bangkok=1,
+	eagle.create:dubai=1,
+	eagle.create:edinburgh=1
+];
+
+:dubai | :edinburgh == [
+	ant.believe:dubai=1,
+	ant.believe:edinburgh=1,
+	ant.create:dubai=1,
+	ant.create:edinburgh=1,
+	ant.discover:edinburgh=1,
+	ant.explore:dubai=1,
+	bat.admire:dubai=1,
+	bat.admire:edinburgh=1,
+	bat.create:dubai=1,
+	bat.create:edinburgh=1,
+	bat.discover:edinburgh=1,
+	bat.explore:dubai=1,
+	cat.admire:dubai=1,
+	cat.admire:edinburgh=1,
+	cat.believe:dubai=1,
+	cat.believe:edinburgh=1,
+	cat.discover:edinburgh=1,
+	cat.explore:dubai=1,
+	deer.admire:dubai=1,
+	deer.admire:edinburgh=1,
+	deer.believe:dubai=1,
+	deer.believe:edinburgh=1,
+	deer.create:dubai=1,
+	deer.create:edinburgh=1,
+	deer.explore:dubai=1,
+	eagle.admire:dubai=1,
+	eagle.admire:edinburgh=1,
+	eagle.believe:dubai=1,
+	eagle.believe:edinburgh=1,
+	eagle.create:dubai=1,
+	eagle.create:edinburgh=1,
+	eagle.discover:edinburgh=1
+];
+
+.letter <= 2 == [
+	ant.letter:ord=1,
+	bat.letter:ord=2
+];
+
+.letter:ord #= 3 == [
+	cat.letter:ord=3
+];
+
+.explore:dubai & .letter:ord > 3 == [
+	deer.explore:dubai=1,
+	deer.letter:ord=4
+];
