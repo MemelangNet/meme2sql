@@ -1,6 +1,6 @@
-# memequery
+# meme2sql
 
-This repo is to help developers build tools to run queries in [Memelang](https://memelang.net/). The contents are licensed under [Memelicense.net](https://memelicense.net/).
+This repo is to help developers build tools to convert [Memelang](https://memelang.net/) queries to SQL. The contents are licensed under [Memelicense.net](https://memelicense.net/).
 
 ## Files
 * *data-gen.py* is used to generate the data
