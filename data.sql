@@ -1,4 +1,4 @@
-DROP TABLE mem;
+DROP TABLE IF EXISTS mem;
 CREATE TABLE mem (aid varchar(255), rid varchar(255), bid varchar(255), qnt DECIMAL(20,6));
 CREATE UNIQUE INDEX arb ON mem (aid,rid,bid);
 CREATE INDEX rid ON mem (rid);
