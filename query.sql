@@ -77,37 +77,45 @@ SELECT * FROM mem WHERE (rid='admire' AND qnt=1) OR (rid='believe' AND qnt=1) OR
 /*
 .discover & .explore
 */
-SELECT * FROM mem WHERE (aid IN (
-		SELECT aid FROM mem WHERE (rid='discover' AND qnt=1) INTERSECT
-		SELECT aid FROM mem WHERE (rid='explore' AND qnt=1)
-) AND (
-	(rid='discover') OR
-	(rid='explore')
-));
+SELECT m.* FROM mem m JOIN (
+    SELECT aid FROM mem GROUP BY aid HAVING 
+        SUM(CASE WHEN (rid='discover' AND qnt=1) THEN 1 ELSE 0 END) > 0
+        AND SUM(CASE WHEN (rid='explore' AND qnt=1) THEN 1 ELSE 0 END) > 0
+) AS aids ON m.aid = aids.aid
+WHERE (
+    (m.rid = 'discover') OR 
+    (m.rid = 'explore')
+);
 
 /*
 .create & :dubai
 */
-SELECT * FROM mem WHERE (aid IN (
-		SELECT aid FROM mem WHERE (rid='create' AND qnt=1) INTERSECT
-		SELECT aid FROM mem WHERE (bid='dubai' AND qnt=1)
-) AND (
-	(rid='create') OR
-	(bid='dubai')
-));
+SELECT m.* FROM mem m JOIN (
+    SELECT aid FROM mem GROUP BY aid HAVING 
+        SUM(CASE WHEN (rid='create' AND qnt=1) THEN 1 ELSE 0 END) > 0
+        AND SUM(CASE WHEN (bid='dubai' AND qnt=1) THEN 1 ELSE 0 END) > 0
+) AS aids ON m.aid = aids.aid
+WHERE (
+    (m.rid = 'create') OR 
+    (m.bid = 'dubai')
+);
+
 
 /*
 .admire & .believe & .letter:ord < 5
 */
-SELECT * FROM mem WHERE (aid IN (
-		SELECT aid FROM mem WHERE (rid='admire' AND qnt=1) INTERSECT
-		SELECT aid FROM mem WHERE (rid='believe' AND qnt=1) INTERSECT
-		SELECT aid FROM mem WHERE (rid='letter' AND bid='ord' AND qnt<5)
-) AND (
-	(rid='admire') OR
-	(rid='believe') OR
-	(rid='letter' AND bid='ord')
-));
+SELECT m.* FROM mem m JOIN (
+    SELECT aid FROM mem GROUP BY aid HAVING 
+        SUM(CASE WHEN (rid='admire' AND qnt=1) THEN 1 ELSE 0 END) > 0
+        AND SUM(CASE WHEN (rid='believe' AND qnt=1) THEN 1 ELSE 0 END) > 0
+        AND SUM(CASE WHEN (rid='letter' AND bid='ord' AND qnt<5) THEN 1 ELSE 0 END) > 0
+) AS aids ON m.aid = aids.aid
+WHERE (
+    (m.rid = 'admire') OR 
+    (m.rid = 'believe') OR 
+    (m.rid = 'letter' AND m.bid = 'ord')
+);
+
 
 
 /* AND-OR */
@@ -115,64 +123,60 @@ SELECT * FROM mem WHERE (aid IN (
 /*
 .discover & .explore:amsterdam | :cairo
 */
-SELECT * FROM mem WHERE (
-    aid IN (
-        SELECT aid FROM mem WHERE (rid='discover' AND qnt=1)
-        INTERSECT
-        SELECT aid FROM mem WHERE (rid='explore' AND bid='amsterdam' AND qnt=1)
-    )
-    AND (
-        (rid='discover') OR
-        (rid='explore') OR
-        (bid='amsterdam')
-    )
-) OR (bid='cairo' AND qnt=1);
+SELECT m.* FROM mem m JOIN (
+    SELECT aid FROM mem GROUP BY aid HAVING 
+        SUM(CASE WHEN (rid='discover' AND qnt=1) THEN 1 ELSE 0 END) > 0
+        AND SUM(CASE WHEN (rid='explore' AND bid='amsterdam' AND qnt=1) THEN 1 ELSE 0 END) > 0
+) AS aids ON m.aid = aids.aid
+WHERE (
+    (m.rid = 'discover') OR 
+    (m.rid='explore' AND m.bid = 'amsterdam')
+)
+UNION
+SELECT * FROM mem WHERE (bid='cairo' AND qnt=1);
 
 
 /*
 .admire & .explore & :amsterdam | .letter:ord < 2 | :bangkok
 */
-SELECT * FROM mem WHERE (
-    aid IN (
-        SELECT aid FROM mem WHERE (rid='admire' AND qnt=1)
-        INTERSECT
-        SELECT aid FROM mem WHERE (rid='explore' AND qnt=1)
-        INTERSECT
-        SELECT aid FROM mem WHERE (bid='amsterdam' AND qnt=1)
-    )
-    AND (
-        (rid='admire') OR
-        (rid='explore') OR
-        (bid='amsterdam')
-    )
-) OR (rid='letter' AND bid='ord' AND qnt < 2)
-OR (bid='bangkok' AND qnt=1);
+SELECT m.* FROM mem m JOIN (
+    SELECT aid FROM mem GROUP BY aid HAVING 
+        SUM(CASE WHEN (rid='admire' AND qnt=1) THEN 1 ELSE 0 END) > 0
+        AND SUM(CASE WHEN (rid='explore' AND qnt=1) THEN 1 ELSE 0 END) > 0
+        AND SUM(CASE WHEN (bid='amsterdam' AND qnt=1) THEN 1 ELSE 0 END) > 0
+) AS aids ON m.aid = aids.aid
+WHERE (
+    (m.rid = 'admire') OR 
+    (m.rid = 'explore') OR 
+    (m.bid = 'amsterdam')
+)
+UNION
+SELECT * FROM mem WHERE (rid='letter' AND bid='ord' AND qnt<2)
+UNION
+SELECT * FROM mem WHERE (bid='bangkok' AND qnt=1);
 
 
 /*
 .admire & .explore & :amsterdam | .letter:ord < 2 & :bangkok
 */
-SELECT * FROM mem WHERE (
-    aid IN (
-        SELECT aid FROM mem WHERE (rid='admire' AND qnt=1)
-        INTERSECT
-        SELECT aid FROM mem WHERE (rid='explore' AND qnt=1)
-        INTERSECT
-        SELECT aid FROM mem WHERE (bid='amsterdam' AND qnt=1)
-    )
-    AND (
-        (rid='admire') OR
-        (rid='explore') OR
-        (bid='amsterdam')
-    )
-) OR (
-    aid IN (
-        SELECT aid FROM mem WHERE (rid='letter' AND bid='ord' AND qnt < 2)
-        INTERSECT
-        SELECT aid FROM mem WHERE (bid='bangkok' AND qnt=1)
-    )
-    AND (
-        (rid='letter' AND bid='ord') OR
-        (bid='bangkok')
-    )
+SELECT m.* FROM mem m JOIN (
+    SELECT aid FROM mem GROUP BY aid HAVING 
+        SUM(CASE WHEN (rid='admire' AND qnt=1) THEN 1 ELSE 0 END) > 0
+        AND SUM(CASE WHEN (rid='explore' AND qnt=1) THEN 1 ELSE 0 END) > 0
+        AND SUM(CASE WHEN (bid='amsterdam' AND qnt=1) THEN 1 ELSE 0 END) > 0
+) AS aids ON m.aid = aids.aid
+WHERE (
+    (m.rid = 'admire') OR 
+    (m.rid = 'explore') OR 
+    (m.bid = 'amsterdam')
+)
+UNION
+SELECT m.* FROM mem m JOIN (
+    SELECT aid FROM mem GROUP BY aid HAVING 
+        SUM(CASE WHEN (rid='letter' AND bid='ord' AND qnt<2) THEN 1 ELSE 0 END) > 0
+        AND SUM(CASE WHEN (bid='bangkok' AND qnt=1) THEN 1 ELSE 0 END) > 0
+) AS aids ON m.aid = aids.aid
+WHERE (
+    (m.rid = 'letter' AND m.bid='ord') OR 
+    (m.bid = 'bangkok')
 );

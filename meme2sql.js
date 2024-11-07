@@ -8,8 +8,8 @@ function meme2sql(memelang) {
     let groupedFilter = groupFilters(filters);
 
     // Include outer filters if any are present
-    let filterCondition = groupedFilter.length > 0 ? ` AND (${groupedFilter.join(' OR ')})` : "";
-    return `SELECT * FROM mem WHERE (${sqlQuery})${filterCondition};`;
+    let filterCondition = groupedFilter.length > 0 ? ` WHERE ${groupedFilter.join(' OR ')}` : "";
+    return sqlQuery + filterCondition + ";";
 }
 
 function memeParse(query) {
@@ -40,29 +40,35 @@ function memeParse(query) {
 }
 
 function memeClause(query, filters) {
-    // Handle OR (|) conditions at the top level
+    // Handle OR (|) conditions by generating complete SELECT statements and combining them with UNION
     if (query.includes('|')) {
-        let clauses = query.split('|');
-        let sqlClauses = clauses.map(clause => memeClause(clause.trim(), filters));
-        return sqlClauses.join(" OR ");
+        const clauses = query.split('|');
+        const sqlClauses = clauses.map(clause => {
+            const subFilters = [];  // Independent filter set for each OR clause
+            const sqlPart = `SELECT m.* FROM mem m ${memeClause(clause.trim(), subFilters)}`;
+            const filterCondition = subFilters.length > 0 ? ` WHERE ${groupFilters(subFilters).join(' OR ')}` : "";
+            return sqlPart + filterCondition;
+        });
+        return sqlClauses.join(" UNION ");
     }
 
-    // Handle AND (&) conditions at the top level with INTERSECT logic
+    // Handle AND (&) conditions by generating JOIN with GROUP BY and HAVING
     if (query.includes('&')) {
-        let clauses = query.split('&');
-        let primaryConditions = clauses.map(clause => {
-            let parsedClause = memeClause(clause.trim(), filters);
-            return `SELECT aid FROM mem WHERE ${parsedClause}`;
+        const clauses = query.split('&');
+        const havingConditions = clauses.map(clause => {
+            const result = memeParse(clause.trim());
+            if (result.filter) filters.push(`(${result.filter})`);
+            return `SUM(CASE WHEN ${result.clause} THEN 1 ELSE 0 END) > 0`;
         });
-        return `aid IN (${primaryConditions.join(" INTERSECT ")})`;
+        return `JOIN (SELECT aid FROM mem GROUP BY aid HAVING ${havingConditions.join(' AND ')}) AS aids ON m.aid = aids.aid`;
     }
 
     // Direct parsing when no nested expressions or logical operators are present
-    let result = memeParse(query);
+    const result = memeParse(query);
     if (result.filter) {
         filters.push(`(${result.filter})`);
     }
-    return result.clause;
+    return `WHERE ${result.clause}`;
 }
 
 function groupFilters(filters) {
@@ -70,25 +76,25 @@ function groupFilters(filters) {
     let bidValues = [];
     let complexFilters = [];
 
-    for (let filter of filters) {
-        let ridMatch = filter.match(/^\(rid='([A-Za-z0-9]+)'\)$/);
-        let bidMatch = filter.match(/^\(bid='([A-Za-z0-9]+)'\)$/);
+    for (const filterCondition of filters) {
+        let ridMatch = filterCondition.match(/^\(rid='([A-Za-z0-9]+)'\)$/);
+        let bidMatch = filterCondition.match(/^\(bid='([A-Za-z0-9]+)'\)$/);
 
         if (ridMatch) {
             ridValues.push(ridMatch[1]);
         } else if (bidMatch) {
             bidValues.push(bidMatch[1]);
         } else {
-            complexFilters.push(filter);  // Complex terms like (rid='letter' AND bid='ord')
+            complexFilters.push(filterCondition);  // Complex terms like (rid='letter' AND bid='ord')
         }
     }
 
-    let grouped = [];
+    const grouped = [];
     if (ridValues.length > 0) {
-        grouped.push(`rid IN ('${ridValues.join("','")}')`);
+        grouped.push(`m.rid IN ('${ridValues.join("','")}')`);
     }
     if (bidValues.length > 0) {
-        grouped.push(`bid IN ('${bidValues.join("','")}')`);
+        grouped.push(`m.bid IN ('${bidValues.join("','")}')`);
     }
 
     return grouped.concat(complexFilters);
@@ -96,7 +102,7 @@ function groupFilters(filters) {
 
 // Test function
 function meme2sqlTest() {
-    let queries = [
+    const queries = [
         "ant.admire:amsterdam #= 0",
         "ant.believe:cairo",
         "ant.believe",
@@ -118,9 +124,9 @@ function meme2sqlTest() {
         ".admire & .explore & :amsterdam | .letter:ord < 2 & :bangkok"
     ];
 
-    for (let query of queries) {
+    for (const query of queries) {
         try {
-            let generatedSql = meme2sql(query);
+            const generatedSql = meme2sql(query);
             console.log(`Query: ${query}`);
             console.log(`Generated SQL: ${generatedSql}\n`);
         } catch (error) {

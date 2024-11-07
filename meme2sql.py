@@ -10,8 +10,8 @@ def meme2sql(memelang):
     grouped_filter = group_filters(filters)
 
     # Include outer filters if any are present
-    filter_condition = f" AND ({' OR '.join(grouped_filter)})" if grouped_filter else ""
-    return f"SELECT * FROM mem WHERE ({sql_query}){filter_condition};"
+    filter_condition = f" WHERE {' OR '.join(grouped_filter)}" if grouped_filter else ""
+    return sql_query + filter_condition + ";"
 
 def meme_parse(query):
     pattern = r'^([A-Za-z0-9]*)\.?([A-Za-z0-9]*):?([A-Za-z0-9]*)?([<>=#]*)?(-?\d*\.?\d*)$'
@@ -41,29 +41,35 @@ def meme_parse(query):
             filter_conditions.append(f"bid='{bid}'")
         return {"clause": f"({' AND '.join(conditions)})", "filter": ' AND '.join(filter_conditions)}
     else:
-        raise Exception(f"Invalid memelang format: {query}")
+        raise ValueError(f"Invalid memelang format: {query}")
 
 def meme_clause(query, filters):
-    # Handle OR (|) conditions at the top level
+    # Handle OR (|) conditions by generating complete SELECT statements and combining them with UNION
     if '|' in query:
         clauses = query.split('|')
-        sql_clauses = [meme_clause(clause.strip(), filters) for clause in clauses]
-        return " OR ".join(sql_clauses)
+        sql_clauses = [
+            f"SELECT m.* FROM mem m {meme_clause(clause.strip(), sub_filters := [])}"
+            + (f" WHERE {' OR '.join(group_filters(sub_filters))}" if sub_filters else "")
+            for clause in clauses
+        ]
+        return " UNION ".join(sql_clauses)
 
-    # Handle AND (&) conditions at the top level with INTERSECT logic
+    # Handle AND (&) conditions by generating JOIN with GROUP BY and HAVING
     if '&' in query:
         clauses = query.split('&')
-        primary_conditions = []
+        having_conditions = []
         for clause in clauses:
-            parsed_clause = meme_clause(clause.strip(), filters)
-            primary_conditions.append(f"SELECT aid FROM mem WHERE {parsed_clause}")
-        return f"aid IN ({' INTERSECT '.join(primary_conditions)})"
+            result = meme_parse(clause.strip())
+            having_conditions.append(f"SUM(CASE WHEN {result['clause']} THEN 1 ELSE 0 END) > 0")
+            if result['filter']:
+                filters.append(f"({result['filter']})")
+        return f"JOIN (SELECT aid FROM mem GROUP BY aid HAVING {' AND '.join(having_conditions)}) AS aids ON m.aid = aids.aid"
 
     # Direct parsing when no nested expressions or logical operators are present
     result = meme_parse(query)
     if result['filter']:
         filters.append(f"({result['filter']})")
-    return result['clause']
+    return f"WHERE {result['clause']}"
 
 def group_filters(filters):
     rid_values = []
@@ -71,18 +77,18 @@ def group_filters(filters):
     complex_filters = []
 
     for filter_condition in filters:
-        if re.match(r"^\(rid='([A-Za-z0-9]+)'\)$", filter_condition):
-            rid_values.append(re.findall(r"rid='([A-Za-z0-9]+)'", filter_condition)[0])
-        elif re.match(r"^\(bid='([A-Za-z0-9]+)'\)$", filter_condition):
-            bid_values.append(re.findall(r"bid='([A-Za-z0-9]+)'", filter_condition)[0])
+        if rid_match := re.match(r"^\(rid='([A-Za-z0-9]+)'\)$", filter_condition):
+            rid_values.append(rid_match.group(1))
+        elif bid_match := re.match(r"^\(bid='([A-Za-z0-9]+)'\)$", filter_condition):
+            bid_values.append(bid_match.group(1))
         else:
             complex_filters.append(filter_condition)  # Complex terms like (rid='letter' AND bid='ord')
 
     grouped = []
     if rid_values:
-        grouped.append(f"rid IN ('{'',''.join(rid_values)}')")
+        grouped.append(f"m.rid IN ('{'',''.join(rid_values)}')")
     if bid_values:
-        grouped.append(f"bid IN ('{'',''.join(bid_values)}')")
+        grouped.append(f"m.bid IN ('{'',''.join(bid_values)}')")
 
     return grouped + complex_filters
 
@@ -115,7 +121,7 @@ def meme2sql_test():
             generated_sql = meme2sql(query)
             print(f"Query: {query}")
             print(f"Generated SQL: {generated_sql}\n")
-        except Exception as e:
+        except ValueError as e:
             print(f"Error: {e}\n")
 
 # Run tests

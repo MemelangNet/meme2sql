@@ -1,4 +1,5 @@
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -19,8 +20,8 @@ public class MemeLangToSQL {
         List<String> groupedFilter = groupFilters(filters);
 
         // Include outer filters if any are present
-        String filterCondition = groupedFilter.isEmpty() ? "" : " AND (" + String.join(" OR ", groupedFilter) + ")";
-        return "SELECT * FROM mem WHERE (" + sqlQuery + ")" + filterCondition + ";";
+        String filterCondition = !groupedFilter.isEmpty() ? " WHERE " + String.join(" OR ", groupedFilter) : "";
+        return sqlQuery + filterCondition + ";";
     }
 
     public static ParseResult memeParse(String query) {
@@ -43,33 +44,38 @@ public class MemeLangToSQL {
             List<String> filterConditions = new ArrayList<>();
             if (rid != null) filterConditions.add("rid='" + rid + "'");
             if (bid != null) filterConditions.add("bid='" + bid + "'");
-
-            return new ParseResult(String.join(" AND ", conditions), String.join(" AND ", filterConditions));
+            return new ParseResult("(" + String.join(" AND ", conditions) + ")", String.join(" AND ", filterConditions));
         } else {
             throw new IllegalArgumentException("Invalid memelang format: " + query);
         }
     }
 
     public static String memeClause(String query, List<String> filters) {
-        // Handle OR (|) conditions at the top level
+        // Handle OR (|) conditions by generating complete SELECT statements and combining them with UNION
         if (query.contains("|")) {
             String[] clauses = query.split("\\|");
             List<String> sqlClauses = new ArrayList<>();
             for (String clause : clauses) {
-                sqlClauses.add(memeClause(clause.trim(), filters));
+                List<String> subFilters = new ArrayList<>();  // Independent filter set for each OR clause
+                String sqlPart = "SELECT m.* FROM mem m " + memeClause(clause.trim(), subFilters);
+                String filterCondition = !subFilters.isEmpty() ? " WHERE " + String.join(" OR ", groupFilters(subFilters)) : "";
+                sqlClauses.add(sqlPart + filterCondition);
             }
-            return String.join(" OR ", sqlClauses);
+            return String.join(" UNION ", sqlClauses);
         }
 
-        // Handle AND (&) conditions at the top level with INTERSECT logic
+        // Handle AND (&) conditions by generating JOIN with GROUP BY and HAVING
         if (query.contains("&")) {
             String[] clauses = query.split("&");
-            List<String> primaryConditions = new ArrayList<>();
+            List<String> havingConditions = new ArrayList<>();
             for (String clause : clauses) {
-                String parsedClause = memeClause(clause.trim(), filters);
-                primaryConditions.add("SELECT aid FROM mem WHERE " + parsedClause);
+                ParseResult result = memeParse(clause.trim());
+                havingConditions.add("SUM(CASE WHEN " + result.clause + " THEN 1 ELSE 0 END) > 0");
+                if (!result.filter.isEmpty()) {
+                    filters.add("(" + result.filter + ")");
+                }
             }
-            return "aid IN (" + String.join(" INTERSECT ", primaryConditions) + ")";
+            return "JOIN (SELECT aid FROM mem GROUP BY aid HAVING " + String.join(" AND ", havingConditions) + ") AS aids ON m.aid = aids.aid";
         }
 
         // Direct parsing when no nested expressions or logical operators are present
@@ -77,7 +83,7 @@ public class MemeLangToSQL {
         if (!result.filter.isEmpty()) {
             filters.add("(" + result.filter + ")");
         }
-        return result.clause;
+        return "WHERE " + result.clause;
     }
 
     public static List<String> groupFilters(List<String> filters) {
@@ -100,18 +106,19 @@ public class MemeLangToSQL {
 
         List<String> grouped = new ArrayList<>();
         if (!ridValues.isEmpty()) {
-            grouped.add("rid IN ('" + String.join("','", ridValues) + "')");
+            grouped.add("m.rid IN ('" + String.join("','", ridValues) + "')");
         }
         if (!bidValues.isEmpty()) {
-            grouped.add("bid IN ('" + String.join("','", bidValues) + "')");
+            grouped.add("m.bid IN ('" + String.join("','", bidValues) + "')");
         }
 
         grouped.addAll(complexFilters);
         return grouped;
     }
 
+    // Test function
     public static void meme2sqlTest() {
-        String[] queries = {
+        List<String> queries = Arrays.asList(
             "ant.admire:amsterdam #= 0",
             "ant.believe:cairo",
             "ant.believe",
@@ -131,14 +138,14 @@ public class MemeLangToSQL {
             ".discover & .explore:amsterdam | :cairo",
             ".admire & .explore & :amsterdam | .letter:ord < 2 | :bangkok",
             ".admire & .explore & :amsterdam | .letter:ord < 2 & :bangkok"
-        };
+        );
 
         for (String query : queries) {
             try {
                 String generatedSql = meme2sql(query);
                 System.out.println("Query: " + query);
                 System.out.println("Generated SQL: " + generatedSql + "\n");
-            } catch (Exception e) {
+            } catch (IllegalArgumentException e) {
                 System.out.println("Error: " + e.getMessage() + "\n");
             }
         }
