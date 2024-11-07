@@ -1,67 +1,63 @@
-// Main function to convert memelang to SQL
 function meme2sql(memelang) {
     // Remove all whitespace from the input
     memelang = memelang.replace(/\s+/g, '');
     let filters = [];  // Collect outer filter conditions for rid/bid
     let sqlQuery = memeClause(memelang, filters);
 
+    // Process filters to group by rid and bid terms
+    let groupedFilter = groupFilters(filters);
+
     // Include outer filters if any are present
-    let filterCondition = filters.length > 0 ? ` AND (${filters.join(" OR ")})` : "";
+    let filterCondition = groupedFilter.length > 0 ? ` AND (${groupedFilter.join(' OR ')})` : "";
     return `SELECT * FROM mem WHERE (${sqlQuery})${filterCondition};`;
 }
 
-// Function to parse A.R:B=Q format
 function memeParse(query) {
-    // Regular expression to parse A.R:B=Q format
     const pattern = /^([A-Za-z0-9]*)\.?([A-Za-z0-9]*):?([A-Za-z0-9]*)?([<>=#]*)?(-?\d*\.?\d*)$/;
-    const match = query.match(pattern);
+    let matches = query.match(pattern);
 
-    if (match) {
-        let [_, aid, rid, bid, operator, qnt] = match;
+    if (matches) {
+        let [_, aid, rid, bid, operator, qnt] = matches;
+        aid = aid || null;
+        rid = rid || null;
+        bid = bid || null;
         operator = operator ? operator.replace('#=', '=') : '=';
-        qnt = qnt !== '' ? qnt : '1';
+        qnt = qnt || '1';
 
-        // Build conditions
         let conditions = [];
         if (aid) conditions.push(`aid='${aid}'`);
         if (rid) conditions.push(`rid='${rid}'`);
         if (bid) conditions.push(`bid='${bid}'`);
         conditions.push(`qnt${operator}${qnt}`);
 
-        // Prepare filter for outer conditions
-        let filterCond = [];
-        if (rid) filterCond.push(`rid='${rid}'`);
-        if (bid) filterCond.push(`bid='${bid}'`);
-        return { clause: `(${conditions.join(' AND ')})`, filter: filterCond.join(' AND ') };
+        let filterConditions = [];
+        if (rid) filterConditions.push(`rid='${rid}'`);
+        if (bid) filterConditions.push(`bid='${bid}'`);
+        return { clause: `(${conditions.join(' AND ')})`, filter: filterConditions.join(' AND ') };
     } else {
         throw new Error(`Invalid memelang format: ${query}`);
     }
 }
 
-// Function to handle & and | operators in clauses
 function memeClause(query, filters) {
+    // Handle OR (|) conditions at the top level
     if (query.includes('|')) {
-        // Split by OR operator
         let clauses = query.split('|');
-        let sqlClauses = clauses.map(clause => memeClause(clause, filters));
+        let sqlClauses = clauses.map(clause => memeClause(clause.trim(), filters));
         return sqlClauses.join(" OR ");
     }
 
+    // Handle AND (&) conditions at the top level with INTERSECT logic
     if (query.includes('&')) {
-        // Split by AND operator
         let clauses = query.split('&');
-        let primaryConditions = [];
-        clauses.forEach(clause => {
-            let result = memeParse(clause.trim());
-            primaryConditions.push(`aid IN (SELECT aid FROM mem WHERE ${result.clause})`);
-            if (result.filter) {
-                filters.push(`(${result.filter})`);
-            }
+        let primaryConditions = clauses.map(clause => {
+            let parsedClause = memeClause(clause.trim(), filters);
+            return `SELECT aid FROM mem WHERE ${parsedClause}`;
         });
-        return primaryConditions.join(" AND ");
+        return `aid IN (${primaryConditions.join(" INTERSECT ")})`;
     }
 
-    // Base case for single clause
+    // Direct parsing when no nested expressions or logical operators are present
     let result = memeParse(query);
     if (result.filter) {
         filters.push(`(${result.filter})`);
@@ -69,10 +65,38 @@ function memeClause(query, filters) {
     return result.clause;
 }
 
+function groupFilters(filters) {
+    let ridValues = [];
+    let bidValues = [];
+    let complexFilters = [];
+
+    for (let filter of filters) {
+        let ridMatch = filter.match(/^\(rid='([A-Za-z0-9]+)'\)$/);
+        let bidMatch = filter.match(/^\(bid='([A-Za-z0-9]+)'\)$/);
+
+        if (ridMatch) {
+            ridValues.push(ridMatch[1]);
+        } else if (bidMatch) {
+            bidValues.push(bidMatch[1]);
+        } else {
+            complexFilters.push(filter);  // Complex terms like (rid='letter' AND bid='ord')
+        }
+    }
+
+    let grouped = [];
+    if (ridValues.length > 0) {
+        grouped.push(`rid IN ('${ridValues.join("','")}')`);
+    }
+    if (bidValues.length > 0) {
+        grouped.push(`bid IN ('${bidValues.join("','")}')`);
+    }
+
+    return grouped.concat(complexFilters);
+}
+
 // Test function
 function meme2sqlTest() {
-    // Define example memelang queries
-    const queries = [
+    let queries = [
         "ant.admire:amsterdam #= 0",
         "ant.believe:cairo",
         "ant.believe",
@@ -90,20 +114,20 @@ function meme2sqlTest() {
         ".discover & .explore",
         ".admire & .believe & .letter:ord < 5",
         ".discover & .explore:amsterdam | :cairo",
-        ".admire & .explore & :amsterdam | .letter:ord < 2 | :bangkok"
+        ".admire & .explore & :amsterdam | .letter:ord < 2 | :bangkok",
+        ".admire & .explore & :amsterdam | .letter:ord < 2 & :bangkok"
     ];
 
-    // Run each query and display the generated SQL
-    queries.forEach(query => {
+    for (let query of queries) {
         try {
-            const generatedSql = meme2sql(query);
+            let generatedSql = meme2sql(query);
             console.log(`Query: ${query}`);
             console.log(`Generated SQL: ${generatedSql}\n`);
         } catch (error) {
-            console.log(`Error: ${error.message}\n`);
+            console.error(`Error: ${error.message}\n`);
         }
-    });
+    }
 }
 
-// Run the test
+// Run tests
 meme2sqlTest();

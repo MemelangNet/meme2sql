@@ -6,65 +6,88 @@ def meme2sql(memelang):
     filters = []  # Collect outer filter conditions for rid/bid
     sql_query = meme_clause(memelang, filters)
 
+    # Process filters to group by rid and bid terms
+    grouped_filter = group_filters(filters)
+
     # Include outer filters if any are present
-    filter_condition = f" AND ({' OR '.join(filters)})" if filters else ""
+    filter_condition = f" AND ({' OR '.join(grouped_filter)})" if grouped_filter else ""
     return f"SELECT * FROM mem WHERE ({sql_query}){filter_condition};"
 
 def meme_parse(query):
-    # Regular expression to parse A.R:B=Q format
     pattern = r'^([A-Za-z0-9]*)\.?([A-Za-z0-9]*):?([A-Za-z0-9]*)?([<>=#]*)?(-?\d*\.?\d*)$'
-    match = re.match(pattern, query)
+    matches = re.match(pattern, query)
 
-    if match:
-        aid, rid, bid, operator, qnt = match.groups()
+    if matches:
+        aid, rid, bid, operator, qnt = matches.groups()
         aid = aid or None
         rid = rid or None
         bid = bid or None
         operator = operator.replace('#=', '=') if operator else '='
-        qnt = qnt if qnt != '' else '1'
+        qnt = qnt if qnt else '1'
 
-        # Build conditions
         conditions = []
-        if aid: conditions.append(f"aid='{aid}'")
-        if rid: conditions.append(f"rid='{rid}'")
-        if bid: conditions.append(f"bid='{bid}'")
+        if aid:
+            conditions.append(f"aid='{aid}'")
+        if rid:
+            conditions.append(f"rid='{rid}'")
+        if bid:
+            conditions.append(f"bid='{bid}'")
         conditions.append(f"qnt{operator}{qnt}")
 
-        # Prepare filter for outer conditions
-        filter_cond = []
-        if rid: filter_cond.append(f"rid='{rid}'")
-        if bid: filter_cond.append(f"bid='{bid}'")
-        return {"clause": f"({' AND '.join(conditions)})", "filter": ' AND '.join(filter_cond)}
+        filter_conditions = []
+        if rid:
+            filter_conditions.append(f"rid='{rid}'")
+        if bid:
+            filter_conditions.append(f"bid='{bid}'")
+        return {"clause": f"({' AND '.join(conditions)})", "filter": ' AND '.join(filter_conditions)}
     else:
-        raise ValueError(f"Invalid memelang format: {query}")
+        raise Exception(f"Invalid memelang format: {query}")
 
 def meme_clause(query, filters):
+    # Handle OR (|) conditions at the top level
     if '|' in query:
-        # Split by OR operator
         clauses = query.split('|')
-        sql_clauses = [meme_clause(clause, filters) for clause in clauses]
+        sql_clauses = [meme_clause(clause.strip(), filters) for clause in clauses]
         return " OR ".join(sql_clauses)
 
+    # Handle AND (&) conditions at the top level with INTERSECT logic
     if '&' in query:
-        # Split by AND operator
         clauses = query.split('&')
         primary_conditions = []
         for clause in clauses:
-            result = meme_parse(clause.strip())
-            primary_conditions.append(f"aid IN (SELECT aid FROM mem WHERE {result['clause']})")
-            if result['filter']:
-                filters.append(f"({result['filter']})")
-        return " AND ".join(primary_conditions)
+            parsed_clause = meme_clause(clause.strip(), filters)
+            primary_conditions.append(f"SELECT aid FROM mem WHERE {parsed_clause}")
+        return f"aid IN ({' INTERSECT '.join(primary_conditions)})"
 
-    # Base case for single clause
+    # Direct parsing when no nested expressions or logical operators are present
     result = meme_parse(query)
     if result['filter']:
         filters.append(f"({result['filter']})")
     return result['clause']
 
+def group_filters(filters):
+    rid_values = []
+    bid_values = []
+    complex_filters = []
+
+    for filter_condition in filters:
+        if re.match(r"^\(rid='([A-Za-z0-9]+)'\)$", filter_condition):
+            rid_values.append(re.findall(r"rid='([A-Za-z0-9]+)'", filter_condition)[0])
+        elif re.match(r"^\(bid='([A-Za-z0-9]+)'\)$", filter_condition):
+            bid_values.append(re.findall(r"bid='([A-Za-z0-9]+)'", filter_condition)[0])
+        else:
+            complex_filters.append(filter_condition)  # Complex terms like (rid='letter' AND bid='ord')
+
+    grouped = []
+    if rid_values:
+        grouped.append(f"rid IN ('{'',''.join(rid_values)}')")
+    if bid_values:
+        grouped.append(f"bid IN ('{'',''.join(bid_values)}')")
+
+    return grouped + complex_filters
+
 # Test function
 def meme2sql_test():
-    # Define example memelang queries
     queries = [
         "ant.admire:amsterdam #= 0",
         "ant.believe:cairo",
@@ -83,17 +106,17 @@ def meme2sql_test():
         ".discover & .explore",
         ".admire & .believe & .letter:ord < 5",
         ".discover & .explore:amsterdam | :cairo",
-        ".admire & .explore & :amsterdam | .letter:ord < 2 | :bangkok"
+        ".admire & .explore & :amsterdam | .letter:ord < 2 | :bangkok",
+        ".admire & .explore & :amsterdam | .letter:ord < 2 & :bangkok"
     ]
 
-    # Run each query and display the generated SQL
     for query in queries:
         try:
             generated_sql = meme2sql(query)
             print(f"Query: {query}")
             print(f"Generated SQL: {generated_sql}\n")
-        except ValueError as e:
+        except Exception as e:
             print(f"Error: {e}\n")
 
-# Run the test
+# Run tests
 meme2sql_test()

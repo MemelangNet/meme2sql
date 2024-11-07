@@ -77,27 +77,37 @@ SELECT * FROM mem WHERE (rid='admire' AND qnt=1) OR (rid='believe' AND qnt=1) OR
 /*
 .discover & .explore
 */
-SELECT * FROM mem WHERE (
-	aid IN (SELECT aid FROM mem WHERE (rid='discover' AND qnt=1)) AND
-	aid IN (SELECT aid FROM mem WHERE (rid='explore' AND qnt=1))
+SELECT * FROM mem WHERE (aid IN (
+		SELECT aid FROM mem WHERE (rid='discover' AND qnt=1) INTERSECT
+		SELECT aid FROM mem WHERE (rid='explore' AND qnt=1)
 ) AND (
 	(rid='discover') OR
 	(rid='explore')
-);
+));
 
+/*
+.create & :dubai
+*/
+SELECT * FROM mem WHERE (aid IN (
+		SELECT aid FROM mem WHERE (rid='create' AND qnt=1) INTERSECT
+		SELECT aid FROM mem WHERE (bid='dubai' AND qnt=1)
+) AND (
+	(rid='create') OR
+	(bid='dubai')
+));
 
 /*
 .admire & .believe & .letter:ord < 5
 */
-SELECT * FROM mem WHERE (
-	aid IN (SELECT aid FROM mem WHERE (rid='admire' AND qnt=1)) AND
-	aid IN (SELECT aid FROM mem WHERE (rid='believe' AND qnt=1)) AND
-	aid IN (SELECT aid FROM mem WHERE (rid='letter' AND bid='ord' AND qnt<5))
+SELECT * FROM mem WHERE (aid IN (
+		SELECT aid FROM mem WHERE (rid='admire' AND qnt=1) INTERSECT
+		SELECT aid FROM mem WHERE (rid='believe' AND qnt=1) INTERSECT
+		SELECT aid FROM mem WHERE (rid='letter' AND bid='ord' AND qnt<5)
 ) AND (
 	(rid='admire') OR
 	(rid='believe') OR
 	(rid='letter' AND bid='ord')
-);
+));
 
 
 /* AND-OR */
@@ -106,96 +116,63 @@ SELECT * FROM mem WHERE (
 .discover & .explore:amsterdam | :cairo
 */
 SELECT * FROM mem WHERE (
-	aid IN (SELECT aid FROM mem WHERE (rid='discover' AND qnt=1)) AND
-	aid IN (SELECT aid FROM mem WHERE (rid='explore' AND bid='amsterdam' AND qnt=1)) OR
-	aid IN (SELECT aid FROM mem WHERE (bid='cairo' AND qnt=1))
-) AND (
-	(rid='discover') OR
-	(rid='explore') OR
-	(bid='cairo')
-);
+    aid IN (
+        SELECT aid FROM mem WHERE (rid='discover' AND qnt=1)
+        INTERSECT
+        SELECT aid FROM mem WHERE (rid='explore' AND bid='amsterdam' AND qnt=1)
+    )
+    AND (
+        (rid='discover') OR
+        (rid='explore') OR
+        (bid='amsterdam')
+    )
+) OR (bid='cairo' AND qnt=1);
+
 
 /*
 .admire & .explore & :amsterdam | .letter:ord < 2 | :bangkok
 */
 SELECT * FROM mem WHERE (
-	aid IN (SELECT aid FROM mem WHERE (rid='admire' AND qnt=1)) AND
-	aid IN (SELECT aid FROM mem WHERE (rid='explore' AND qnt=1)) AND
-	aid IN (SELECT aid FROM mem WHERE (bid='amsterdam' AND qnt=1)) OR
-	aid IN (SELECT aid FROM mem WHERE (rid='letter' AND bid='ord' AND qnt<2)) OR
-	aid IN (SELECT aid FROM mem WHERE (bid='bangkok' AND qnt=1))
-) AND (
-	(rid='admire') OR
-	(rid='explore') OR
-	(bid='amsterdam') OR
-	(rid='letter' AND bid='ord') OR
-	(bid='bangkok')
-);
-
-
-/* PARENTHESES */
-
-/*
-(.admire | :edinburgh)
-*/
-SELECT * FROM mem WHERE (
-	(
-	   	aid IN (SELECT aid FROM mem WHERE (rid='admire' AND qnt=1)) OR
-   		aid IN (SELECT aid FROM mem WHERE (bid='edinburgh' AND qnt=1))
-	)
-) AND (
-	(rid='admire') OR
-	(bid='edinburgh')
-);
-
-
-/*
-.letter>1 & (.admire | :edinburgh)
-*/
-SELECT * FROM mem WHERE (
-	aid IN (SELECT aid FROM mem WHERE (rid='letter' AND qnt>1)) AND
-	(
-	   	aid IN (SELECT aid FROM mem WHERE (rid='admire' AND qnt=1)) OR
-   		aid IN (SELECT aid FROM mem WHERE (bid='edinburgh' AND qnt=1))
-	)
-) AND (
-	(rid='letter') OR
-	(rid='admire') OR
-	(bid='edinburgh')
-);
-
-
-/*
-.letter>1 & .letter<5 & (.discover | :cairo)
-*/
-SELECT * FROM mem WHERE (
-	aid IN (SELECT aid FROM mem WHERE (rid='letter' AND qnt>1))	AND
-	aid IN (SELECT aid FROM mem WHERE (rid='letter' AND qnt<5))	AND
-   	aid IN (
-   		SELECT aid FROM mem WHERE (rid='discover' AND qnt=1) UNION
-   		SELECT aid FROM mem WHERE (bid='cairo' AND qnt=1)
-   	) AND
-    (
-    	(rid='letter') OR
-    	(rid='discover') OR
-    	(bid='cairo')
+    aid IN (
+        SELECT aid FROM mem WHERE (rid='admire' AND qnt=1)
+        INTERSECT
+        SELECT aid FROM mem WHERE (rid='explore' AND qnt=1)
+        INTERSECT
+        SELECT aid FROM mem WHERE (bid='amsterdam' AND qnt=1)
     )
-);
+    AND (
+        (rid='admire') OR
+        (rid='explore') OR
+        (bid='amsterdam')
+    )
+) OR (rid='letter' AND bid='ord' AND qnt < 2)
+OR (bid='bangkok' AND qnt=1);
 
 
 /*
-.letter>1 & .letter<5 & (.discover | :cairo)
+.admire & .explore & :amsterdam | .letter:ord < 2 & :bangkok
 */
 SELECT * FROM mem WHERE (
-	aid IN (SELECT aid FROM mem WHERE (rid='letter' AND qnt>1))	AND
-	aid IN (SELECT aid FROM mem WHERE (rid='letter' AND qnt<5))	AND
-   	aid IN (
-   		SELECT aid FROM mem WHERE (rid='discover' AND qnt=1) UNION
-   		SELECT aid FROM mem WHERE (bid='cairo' AND qnt=1)
-   	) AND
-    (
-    	(rid='letter') OR
-    	(rid='discover') OR
-    	(bid='cairo')
+    aid IN (
+        SELECT aid FROM mem WHERE (rid='admire' AND qnt=1)
+        INTERSECT
+        SELECT aid FROM mem WHERE (rid='explore' AND qnt=1)
+        INTERSECT
+        SELECT aid FROM mem WHERE (bid='amsterdam' AND qnt=1)
+    )
+    AND (
+        (rid='admire') OR
+        (rid='explore') OR
+        (bid='amsterdam')
+    )
+) OR (
+    aid IN (
+        SELECT aid FROM mem WHERE (rid='letter' AND bid='ord' AND qnt < 2)
+        INTERSECT
+        SELECT aid FROM mem WHERE (bid='bangkok' AND qnt=1)
+    )
+    AND (
+        (rid='letter' AND bid='ord') OR
+        (bid='bangkok')
     )
 );

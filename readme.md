@@ -14,4 +14,4 @@ This is currently in BETA. We're not yet able to handle paranthetical cluases (.
 * *meme2sql.php* PHP program to convert Memelang to SQL
 * *meme2sql.py* Python program to convert Memelang to SQL
 * *query.sql* shows translations between Memelang and SQL
-* *results.mem* shows correct queries/results on the sample data
+* *result.mem* shows correct queries/results on the sample data

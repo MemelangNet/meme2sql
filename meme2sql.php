@@ -1,6 +1,6 @@
 <?php
 
-// Run the test with example queries
+// Execute the test function
 meme2sql_test();
 
 function meme2sql($memelang) {
@@ -9,13 +9,15 @@ function meme2sql($memelang) {
     $filters = [];  // Collect outer filter conditions for rid/bid
     $sqlQuery = memeClause($memelang, $filters);
 
+    // Process filters to group by rid and bid terms
+    $groupedFilter = groupFilters($filters);
+
     // Include outer filters if any are present
-    $filterCondition = !empty($filters) ? " AND (" . implode(" OR ", $filters) . ")" : "";
+    $filterCondition = !empty($groupedFilter) ? " AND (" . implode(" OR ", $groupedFilter) . ")" : "";
     return "SELECT * FROM mem WHERE ($sqlQuery)$filterCondition;";
 }
 
 function memeParse($query) {
-    // Regular expression to parse A.R:B=Q format
     $pattern = '/^([A-Za-z0-9]*)\.?([A-Za-z0-9]*):?([A-Za-z0-9]*)?([<>=#]*)?(-?\d*\.?\d*)$/';
 
     if (preg_match($pattern, $query, $matches)) {
@@ -31,7 +33,6 @@ function memeParse($query) {
         if ($bid) $conditions[] = "bid='$bid'";
         $conditions[] = "qnt$operator$qnt";
 
-        // Prepare filter for outer conditions based on rid/bid
         $filter = [];
         if ($rid) $filter[] = "rid='$rid'";
         if ($bid) $filter[] = "bid='$bid'";
@@ -42,30 +43,27 @@ function memeParse($query) {
 }
 
 function memeClause($query, &$filters) {
+    // Handle OR (|) conditions at the top level
     if (strpos($query, '|') !== false) {
-        // Split by OR operator
         $clauses = explode('|', $query);
         $sqlClauses = array_map(function($clause) use (&$filters) {
-            return memeClause($clause, $filters);
+            return memeClause(trim($clause), $filters);
         }, $clauses);
         return implode(" OR ", $sqlClauses);
     }
 
+    // Handle AND (&) conditions at the top level with INTERSECT logic
     if (strpos($query, '&') !== false) {
-        // Split by AND operator
         $clauses = explode('&', $query);
         $primaryConditions = [];
         foreach ($clauses as $clause) {
-            $result = memeParse(trim($clause));
-            $primaryConditions[] = "aid IN (SELECT aid FROM mem WHERE " . $result['clause'] . ")";
-            if ($result['filter']) {
-                $filters[] = "(" . $result['filter'] . ")";
-            }
+            $parsedClause = memeClause(trim($clause), $filters);
+            $primaryConditions[] = "SELECT aid FROM mem WHERE $parsedClause";
         }
-        return implode(" AND ", $primaryConditions);
+        return "aid IN (" . implode(" INTERSECT ", $primaryConditions) . ")";
     }
 
-    // Base case for single clause
+    // Direct parsing when no nested expressions or logical operators are present
     $result = memeParse($query);
     if ($result['filter']) {
         $filters[] = "(" . $result['filter'] . ")";
@@ -73,9 +71,35 @@ function memeClause($query, &$filters) {
     return $result['clause'];
 }
 
+// Function to group single-variable rid and bid terms in filters
+function groupFilters($filters) {
+    $ridValues = [];
+    $bidValues = [];
+    $complexFilters = [];
+
+    foreach ($filters as $filter) {
+        if (preg_match("/^\\(rid='([A-Za-z0-9]+)'\\)$/", $filter, $matches)) {
+            $ridValues[] = $matches[1];
+        } elseif (preg_match("/^\\(bid='([A-Za-z0-9]+)'\\)$/", $filter, $matches)) {
+            $bidValues[] = $matches[1];
+        } else {
+            $complexFilters[] = $filter;  // Complex terms like (rid='letter' AND bid='ord')
+        }
+    }
+
+    $grouped = [];
+    if (!empty($ridValues)) {
+        $grouped[] = "rid IN ('" . implode("','", $ridValues) . "')";
+    }
+    if (!empty($bidValues)) {
+        $grouped[] = "bid IN ('" . implode("','", $bidValues) . "')";
+    }
+
+    return array_merge($grouped, $complexFilters);
+}
+
 // Test function
 function meme2sql_test() {
-    // Define example memelang queries
     $queries = [
         "ant.admire:amsterdam #= 0",
         "ant.believe:cairo",
@@ -94,10 +118,10 @@ function meme2sql_test() {
         ".discover & .explore",
         ".admire & .believe & .letter:ord < 5",
         ".discover & .explore:amsterdam | :cairo",
-        ".admire & .explore & :amsterdam | .letter:ord < 2 | :bangkok"
+        ".admire & .explore & :amsterdam | .letter:ord < 2 | :bangkok",
+        ".admire & .explore & :amsterdam | .letter:ord < 2 & :bangkok"
     ];
 
-    // Run each query and display the generated SQL
     foreach ($queries as $query) {
         try {
             $generated_sql = meme2sql($query);
@@ -108,3 +132,5 @@ function meme2sql_test() {
         }
     }
 }
+
+?>
