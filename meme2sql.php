@@ -1,38 +1,19 @@
 <?php
 
-/**
- * Memelang SQL Query Processor
- * 
- * This script allows the processing of Memelang queries and translation to SQL.
- * It supports SQLite3, MySQL, and PostgreSQL databases, translating complex Memelang
- * expressions into SQL that can be executed on a specified table.
- * 
- * Usage:
- * 1. Set the database connection constants (DB_TYPE, DB_PATH, DB_HOST, DB_USER, DB_PASSWORD, DB_NAME, DB_TABLE).
- * 2. Use `memeQuery($memelangQuery)` to process a Memelang query.
- * 3. The function returns results in an array format, or an error message if processing fails.
- * 4. Use `memeOut($results)` to format the output as Memelang-style strings.
-**/
+// Run the test function
+memeTest();
 
 // Database configuration constants
 define('DB_TYPE', 'sqlite3');      // Default to 'sqlite3'. Options: 'sqlite3', 'mysql', 'postgres'
-define('DB_PATH', 'data.sqlite');  // Default path for SQLite3
+define('DB_PATH', 'data.sqlite');   // Default path for SQLite3
 define('DB_HOST', 'localhost');    // Host for MySQL/Postgres
 define('DB_USER', 'username');     // Username for MySQL/Postgres
 define('DB_PASSWORD', 'password'); // Password for MySQL/Postgres
 define('DB_NAME', 'database_name'); // Database name for MySQL/Postgres
 define('DB_TABLE', 'meme');        // Default table name for queries
 
-// Example Usage
-$memelangQuery = ".admire & .explore & :amsterdam | .letter:ord < 2 & :bangkok";  // Sample memelang query
-$results = memeQuery($memelangQuery);
-echo memeOut($results);
-
 // Main function to process memelang query and return results
 function memeQuery($memelangQuery) {
-	// Remove all whitespace from the input
-	$memelangQuery = preg_replace('/\s+/', '', $memelangQuery);
-	
 	try {
 		// Translate memelang to SQL
 		$sqlQuery = memeSQL($memelangQuery);
@@ -52,47 +33,52 @@ function memeQuery($memelangQuery) {
 	}
 }
 
-// Function to handle AND, OR conditions and translate to SQL
+// Updated function to handle AND, OR, AND-NOT conditions and translate to SQL
 function memeSQL($query) {
-	// If there are multiple OR clauses, separate each one with a UNION and wrap each in a SELECT statement
-	if (strpos($query, '|') !== false) {
-		$clauses = explode('|', $query);
-		$sqlClauses = array_map(function($clause) {
-			return "SELECT m.* FROM " . DB_TABLE . " m " . memeJunction($clause);
-		}, $clauses);
-		return implode(" UNION ", $sqlClauses);
-	}
+	// Remove all whitespace from the input
+	$query = preg_replace('/\s+/', '', $query);
 
-	// If no OR, treat it as a single SELECT query
-	return "SELECT m.* FROM " . DB_TABLE . " m " . memeJunction($query);
+	// Split the query by | for OR conditions
+	$orClauses = explode('|', $query);
+	$sqlClauses = array_map(function($clause) {
+		// Check for & in the clause for AND conditions
+		if (strpos($clause, '&') !== false) {
+			return "SELECT m.* FROM " . DB_TABLE . " m " . memeJunction(trim($clause));
+		} else {
+			// Handle simple clause with no &
+			$result = memeParse(trim($clause));
+			return "SELECT * FROM " . DB_TABLE . " WHERE " . $result['clause'];
+		}
+	}, $orClauses);
+
+	// Join the OR-separated clauses using UNION for the final SQL
+	return implode(" UNION ", $sqlClauses);
 }
 
-// Handle single clause logic for both AND (&) conditions and basic WHERE filtering
+// Handle single clause logic for AND (&), AND-NOT (&!), and basic WHERE filtering
 function memeJunction($query) {
 	$filters = [];
-	
-	// Handle AND conditions
-	if (strpos($query, '&') !== false) {
-		$clauses = explode('&', $query);
-		$havingConditions = [];
-		foreach ($clauses as $clause) {
-			$result = memeParse(trim($clause));
-			$havingConditions[] = "SUM(CASE WHEN " . $result['clause'] . " THEN 1 ELSE 0 END) > 0";
-			if ($result['filter']) {
-				$filters[] = "(" . $result['filter'] . ")";
-			}
+	$havingConditions = [];
+
+	// Split the query by '&' and process each clause
+	$clauses = explode('&', $query);
+	foreach ($clauses as $clause) {
+		$clause = trim($clause);
+
+		// Determine if the clause is an AND-NOT by checking if it starts with '!'
+		$isAndNotCondition = (strpos($clause, '!') === 0);
+		$clause = $isAndNotCondition ? substr($clause, 1) : $clause;
+
+		$result = memeParse($clause);
+		$havingConditions[] = "SUM(CASE WHEN " . $result['clause'] . " THEN 1 ELSE 0 END) " . ($isAndNotCondition ? "= 0" : "> 0");
+
+		if ($result['filter']) {
+			$filters[] = "(" . $result['filter'] . ")";
 		}
-		return "JOIN (SELECT aid FROM " . DB_TABLE . " GROUP BY aid HAVING " . implode(" AND ", $havingConditions) . ") AS aids ON m.aid = aids.aid" .
-			(!empty($filters) ? " WHERE " . implode(" OR ", memeFilterGroup($filters)) : "");
 	}
 
-	// No AND, so it's a single WHERE condition
-	$result = memeParse($query);
-	if ($result['filter']) {
-		$filters[] = "(" . $result['filter'] . ")";
-	}
-	return "WHERE " . $result['clause'] .
-		(!empty($filters) ? " AND " . implode(" OR ", memeFilterGroup($filters)) : "");
+	return "JOIN (SELECT aid FROM " . DB_TABLE . " GROUP BY aid HAVING " . implode(" AND ", $havingConditions) . ") AS aids ON m.aid = aids.aid" .
+		(!empty($filters) ? " WHERE " . implode(" OR ", memeFilterGroup($filters)) : "");
 }
 
 // Function to parse individual components of the memelang query
@@ -212,6 +198,42 @@ function memeOut($results) {
 		$memelangOutput[] = "{$row['aid']}.{$row['rid']}:{$row['bid']}={$row['qnt']}";
 	}
 	return implode(";\n", $memelangOutput);
+}
+
+// Test function with various example queries
+function memeTest() {
+	$queries = [
+		"ant.admire:amsterdam #= 0",
+		"ant.believe:cairo",
+		"ant.believe",
+		"ant",
+		".admire",
+		":amsterdam",
+		".letter #= 2",
+		".letter > 1.9",
+		".letter >= 2.1",
+		".letter < 2.2",
+		".letter <= 2.3",
+		"ant | :bangkok",
+		".admire | .believe",
+		".admire | .believe | .letter > 2",
+		".discover &! .explore",
+		".create &! :dubai",
+		".admire &! .believe & .letter:ord < 5",
+		".admire &! .believe &! .letter:ord < 5",
+		".discover & .explore:amsterdam | :cairo",
+		".admire & .explore & :amsterdam | .letter:ord < 2 | :bangkok",
+		".admire & .explore & :amsterdam | .letter:ord < 2 & :bangkok",
+		".admire & .explore &! :bangkok | .letter:ord < 3 & :amsterdam"
+	];
+
+	foreach ($queries as $query) {
+		echo "Memelang Query: $query\n";
+		$sqlQuery = memeSQL($query);
+		echo "Generated SQL: $sqlQuery\n";
+		$results = memeQuery($query);
+		echo "Results in Memelang Format:\n" . memeOut($results) . "\n\n";
+	}
 }
 
 ?>

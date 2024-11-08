@@ -14,3 +14,7 @@ This BETA repo is to help developers build tools to convert [Memelang](https://m
 * *meme2sql.py* Python program to convert Memelang to SQL
 * *query.sql* shows translations between Memelang and SQL
 * *result.mem* shows correct queries/results on the sample data
+
+
+## To Do
+* Support relation chains (.Rx.Ry)
