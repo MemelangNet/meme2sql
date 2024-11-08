@@ -1,60 +1,55 @@
 import re
+import sqlite3
+import pymysql
+import psycopg2
+from typing import List, Dict, Any
 
-def meme2sql(memelang):
+# Database configuration constants
+DB_TYPE = 'sqlite3'       # Default to 'sqlite3'. Options: 'sqlite3', 'mysql', 'postgres'
+DB_PATH = 'data.sqlite'   # Default path for SQLite3
+DB_HOST = 'localhost'     # Host for MySQL/Postgres
+DB_USER = 'username'      # Username for MySQL/Postgres
+DB_PASSWORD = 'password'  # Password for MySQL/Postgres
+DB_NAME = 'database_name' # Database name for MySQL/Postgres
+DB_TABLE = 'meme'         # Default table name for queries
+
+# Main function to process memelang query and return results
+def meme_query(memelang_query: str) -> List[Dict[str, Any]]:
     # Remove all whitespace from the input
-    memelang = re.sub(r'\s+', '', memelang)
-    filters = []  # Collect outer filter conditions for rid/bid
-    sql_query = meme_clause(memelang, filters)
+    memelang_query = re.sub(r'\s+', '', memelang_query)
 
-    # Process filters to group by rid and bid terms
-    grouped_filter = group_filters(filters)
+    try:
+        # Translate memelang to SQL
+        sql_query = meme_sql(memelang_query)
+        
+        # Call the appropriate database function based on DB_TYPE constant
+        if DB_TYPE == 'sqlite3':
+            return meme_sqlite3(sql_query)
+        elif DB_TYPE == 'mysql':
+            return meme_mysql(sql_query)
+        elif DB_TYPE == 'postgres':
+            return meme_postgres(sql_query)
+        else:
+            raise ValueError(f"Unsupported database type: {DB_TYPE}")
+    except Exception as e:
+        return [{"error": str(e)}]
 
-    # Include outer filters if any are present
-    filter_condition = f" WHERE {' OR '.join(grouped_filter)}" if grouped_filter else ""
-    return sql_query + filter_condition + ";"
-
-def meme_parse(query):
-    pattern = r'^([A-Za-z0-9]*)\.?([A-Za-z0-9]*):?([A-Za-z0-9]*)?([<>=#]*)?(-?\d*\.?\d*)$'
-    matches = re.match(pattern, query)
-
-    if matches:
-        aid, rid, bid, operator, qnt = matches.groups()
-        aid = aid or None
-        rid = rid or None
-        bid = bid or None
-        operator = operator.replace('#=', '=') if operator else '='
-        qnt = qnt if qnt else '1'
-
-        conditions = []
-        if aid:
-            conditions.append(f"aid='{aid}'")
-        if rid:
-            conditions.append(f"rid='{rid}'")
-        if bid:
-            conditions.append(f"bid='{bid}'")
-        conditions.append(f"qnt{operator}{qnt}")
-
-        filter_conditions = []
-        if rid:
-            filter_conditions.append(f"rid='{rid}'")
-        if bid:
-            filter_conditions.append(f"bid='{bid}'")
-        return {"clause": f"({' AND '.join(conditions)})", "filter": ' AND '.join(filter_conditions)}
-    else:
-        raise ValueError(f"Invalid memelang format: {query}")
-
-def meme_clause(query, filters):
-    # Handle OR (|) conditions by generating complete SELECT statements and combining them with UNION
+# Function to handle AND, OR conditions and translate to SQL
+def meme_sql(query: str) -> str:
+    # If there are multiple OR clauses, separate each one with a UNION and wrap each in a SELECT statement
     if '|' in query:
         clauses = query.split('|')
-        sql_clauses = [
-            f"SELECT m.* FROM mem m {meme_clause(clause.strip(), sub_filters := [])}"
-            + (f" WHERE {' OR '.join(group_filters(sub_filters))}" if sub_filters else "")
-            for clause in clauses
-        ]
+        sql_clauses = [f"SELECT m.* FROM {DB_TABLE} m {meme_junction(clause.strip())}" for clause in clauses]
         return " UNION ".join(sql_clauses)
 
-    # Handle AND (&) conditions by generating JOIN with GROUP BY and HAVING
+    # If no OR, treat it as a single SELECT query
+    return f"SELECT m.* FROM {DB_TABLE} m {meme_junction(query.strip())}"
+
+# Handle single clause logic for both AND (&) conditions and basic WHERE filtering
+def meme_junction(query: str) -> str:
+    filters = []
+
+    # Handle AND conditions
     if '&' in query:
         clauses = query.split('&')
         having_conditions = []
@@ -63,26 +58,57 @@ def meme_clause(query, filters):
             having_conditions.append(f"SUM(CASE WHEN {result['clause']} THEN 1 ELSE 0 END) > 0")
             if result['filter']:
                 filters.append(f"({result['filter']})")
-        return f"JOIN (SELECT aid FROM mem GROUP BY aid HAVING {' AND '.join(having_conditions)}) AS aids ON m.aid = aids.aid"
+        
+        return f"JOIN (SELECT aid FROM {DB_TABLE} GROUP BY aid HAVING " + \
+               f"{' AND '.join(having_conditions)}) AS aids ON m.aid = aids.aid" + \
+               (f" WHERE {' OR '.join(meme_filter_group(filters))}" if filters else "")
 
-    # Direct parsing when no nested expressions or logical operators are present
+    # No AND, so it's a single WHERE condition
     result = meme_parse(query)
     if result['filter']:
         filters.append(f"({result['filter']})")
-    return f"WHERE {result['clause']}"
+    return f"WHERE {result['clause']}" + \
+           (f" AND {' OR '.join(meme_filter_group(filters))}" if filters else "")
 
-def group_filters(filters):
+# Function to parse individual components of the memelang query
+def meme_parse(query: str) -> Dict[str, str]:
+    pattern = r'^([A-Za-z0-9]*)\.?([A-Za-z0-9]*):?([A-Za-z0-9]*)?([<>=#]*)?(-?\d*\.?\d*)$'
+    matches = re.match(pattern, query)
+    if matches:
+        aid, rid, bid, operator, qnt = matches.groups()
+        operator = '=' if operator == '#=' else operator
+        qnt = qnt if qnt != '' else '1'
+
+        conditions = []
+        if aid: conditions.append(f"aid='{aid}'")
+        if rid: conditions.append(f"rid='{rid}'")
+        if bid: conditions.append(f"bid='{bid}'")
+        conditions.append(f"qnt{operator}{qnt}")
+
+        filter_conditions = []
+        if rid: filter_conditions.append(f"rid='{rid}'")
+        if bid: filter_conditions.append(f"bid='{bid}'")
+
+        return {
+            "clause": f"({' AND '.join(conditions)})",
+            "filter": ' AND '.join(filter_conditions)
+        }
+    else:
+        raise ValueError(f"Invalid memelang format: {query}")
+
+# Group filters to reduce SQL complexity
+def meme_filter_group(filters: List[str]) -> List[str]:
     rid_values = []
     bid_values = []
     complex_filters = []
 
-    for filter_condition in filters:
-        if rid_match := re.match(r"^\(rid='([A-Za-z0-9]+)'\)$", filter_condition):
-            rid_values.append(rid_match.group(1))
-        elif bid_match := re.match(r"^\(bid='([A-Za-z0-9]+)'\)$", filter_condition):
-            bid_values.append(bid_match.group(1))
+    for filter_expr in filters:
+        if match := re.match(r"^\(rid='([A-Za-z0-9]+)'\)$", filter_expr):
+            rid_values.append(match.group(1))
+        elif match := re.match(r"^\(bid='([A-Za-z0-9]+)'\)$", filter_expr):
+            bid_values.append(match.group(1))
         else:
-            complex_filters.append(filter_condition)  # Complex terms like (rid='letter' AND bid='ord')
+            complex_filters.append(filter_expr)
 
     grouped = []
     if rid_values:
@@ -92,37 +118,42 @@ def group_filters(filters):
 
     return grouped + complex_filters
 
-# Test function
-def meme2sql_test():
-    queries = [
-        "ant.admire:amsterdam #= 0",
-        "ant.believe:cairo",
-        "ant.believe",
-        "ant",
-        ".admire",
-        ":amsterdam",
-        ".letter #= 2",
-        ".letter > 1.9",
-        ".letter >= 2.1",
-        ".letter < 2.2",
-        ".letter <= 2.3",
-        "ant | :cairo",
-        ".admire | .believe",
-        ".admire | .believe | .letter > 2",
-        ".discover & .explore",
-        ".admire & .believe & .letter:ord < 5",
-        ".discover & .explore:amsterdam | :cairo",
-        ".admire & .explore & :amsterdam | .letter:ord < 2 | :bangkok",
-        ".admire & .explore & :amsterdam | .letter:ord < 2 & :bangkok"
+# SQLite3 database query function
+def meme_sqlite3(sql_query: str) -> List[Dict[str, Any]]:
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute(sql_query)
+    results = [dict(row) for row in cursor.fetchall()]
+    conn.close()
+    return results
+
+# MySQL database query function
+def meme_mysql(sql_query: str) -> List[Dict[str, Any]]:
+    connection = pymysql.connect(host=DB_HOST, user=DB_USER, password=DB_PASSWORD, db=DB_NAME)
+    cursor = connection.cursor(pymysql.cursors.DictCursor)
+    cursor.execute(sql_query)
+    results = cursor.fetchall()
+    connection.close()
+    return results
+
+# PostgreSQL database query function
+def meme_postgres(sql_query: str) -> List[Dict[str, Any]]:
+    connection = psycopg2.connect(host=DB_HOST, dbname=DB_NAME, user=DB_USER, password=DB_PASSWORD)
+    cursor = connection.cursor()
+    cursor.execute(sql_query)
+    results = [dict(row) for row in cursor.fetchall()]
+    connection.close()
+    return results
+
+# Format query results as memelang
+def meme_out(results: List[Dict[str, Any]]) -> str:
+    memelang_output = [
+        f"{row['aid']}.{row['rid']}:{row['bid']}={row['qnt']}" for row in results
     ]
+    return ";\n".join(memelang_output)
 
-    for query in queries:
-        try:
-            generated_sql = meme2sql(query)
-            print(f"Query: {query}")
-            print(f"Generated SQL: {generated_sql}\n")
-        except ValueError as e:
-            print(f"Error: {e}\n")
-
-# Run tests
-meme2sql_test()
+# Example usage
+if __name__ == '__main__':
+    memelang_query = ".admire & .explore & :amsterdam | .letter:ord < 2 & :bangkok"
+    results = meme_query(memelang_query)
+    print(meme_out(results))

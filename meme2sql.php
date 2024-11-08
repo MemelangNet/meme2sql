@@ -1,22 +1,101 @@
 <?php
 
-// Execute the test function
-meme2sql_test();
+/**
+ * Memelang SQL Query Processor
+ * 
+ * This script allows the processing of Memelang queries and translation to SQL.
+ * It supports SQLite3, MySQL, and PostgreSQL databases, translating complex Memelang
+ * expressions into SQL that can be executed on a specified table.
+ * 
+ * Usage:
+ * 1. Set the database connection constants (DB_TYPE, DB_PATH, DB_HOST, DB_USER, DB_PASSWORD, DB_NAME, DB_TABLE).
+ * 2. Use `memeQuery($memelangQuery)` to process a Memelang query.
+ * 3. The function returns results in an array format, or an error message if processing fails.
+ * 4. Use `memeOut($results)` to format the output as Memelang-style strings.
+**/
 
-function meme2sql($memelang) {
+// Database configuration constants
+define('DB_TYPE', 'sqlite3');      // Default to 'sqlite3'. Options: 'sqlite3', 'mysql', 'postgres'
+define('DB_PATH', 'data.sqlite');  // Default path for SQLite3
+define('DB_HOST', 'localhost');    // Host for MySQL/Postgres
+define('DB_USER', 'username');     // Username for MySQL/Postgres
+define('DB_PASSWORD', 'password'); // Password for MySQL/Postgres
+define('DB_NAME', 'database_name'); // Database name for MySQL/Postgres
+define('DB_TABLE', 'meme');        // Default table name for queries
+
+// Example Usage
+$memelangQuery = ".admire & .explore & :amsterdam | .letter:ord < 2 & :bangkok";  // Sample memelang query
+$results = memeQuery($memelangQuery);
+echo memeOut($results);
+
+// Main function to process memelang query and return results
+function memeQuery($memelangQuery) {
 	// Remove all whitespace from the input
-	$memelang = preg_replace('/\s+/', '', $memelang);
-	$filters = [];  // Collect outer filter conditions for rid/bid
-	$sqlQuery = memeClause($memelang, $filters);
-
-	// Process filters to group by rid and bid terms
-	$groupedFilter = groupFilters($filters);
-
-	// Include outer filters if any are present
-	$filterCondition = !empty($groupedFilter) ? " WHERE " . implode(" OR ", $groupedFilter) : "";
-	return $sqlQuery . $filterCondition . ";";
+	$memelangQuery = preg_replace('/\s+/', '', $memelangQuery);
+	
+	try {
+		// Translate memelang to SQL
+		$sqlQuery = memeSQL($memelangQuery);
+		// Call the appropriate database function based on DB_TYPE constant
+		switch (DB_TYPE) {
+			case 'sqlite3':
+				return memeSQLite3($sqlQuery);
+			case 'mysql':
+				return memeMySQL($sqlQuery);
+			case 'postgres':
+				return memePostgres($sqlQuery);
+			default:
+				throw new Exception("Unsupported database type: " . DB_TYPE);
+		}
+	} catch (Exception $e) {
+		return "Error: " . $e->getMessage();
+	}
 }
 
+// Function to handle AND, OR conditions and translate to SQL
+function memeSQL($query) {
+	// If there are multiple OR clauses, separate each one with a UNION and wrap each in a SELECT statement
+	if (strpos($query, '|') !== false) {
+		$clauses = explode('|', $query);
+		$sqlClauses = array_map(function($clause) {
+			return "SELECT m.* FROM " . DB_TABLE . " m " . memeJunction($clause);
+		}, $clauses);
+		return implode(" UNION ", $sqlClauses);
+	}
+
+	// If no OR, treat it as a single SELECT query
+	return "SELECT m.* FROM " . DB_TABLE . " m " . memeJunction($query);
+}
+
+// Handle single clause logic for both AND (&) conditions and basic WHERE filtering
+function memeJunction($query) {
+	$filters = [];
+	
+	// Handle AND conditions
+	if (strpos($query, '&') !== false) {
+		$clauses = explode('&', $query);
+		$havingConditions = [];
+		foreach ($clauses as $clause) {
+			$result = memeParse(trim($clause));
+			$havingConditions[] = "SUM(CASE WHEN " . $result['clause'] . " THEN 1 ELSE 0 END) > 0";
+			if ($result['filter']) {
+				$filters[] = "(" . $result['filter'] . ")";
+			}
+		}
+		return "JOIN (SELECT aid FROM " . DB_TABLE . " GROUP BY aid HAVING " . implode(" AND ", $havingConditions) . ") AS aids ON m.aid = aids.aid" .
+			(!empty($filters) ? " WHERE " . implode(" OR ", memeFilterGroup($filters)) : "");
+	}
+
+	// No AND, so it's a single WHERE condition
+	$result = memeParse($query);
+	if ($result['filter']) {
+		$filters[] = "(" . $result['filter'] . ")";
+	}
+	return "WHERE " . $result['clause'] .
+		(!empty($filters) ? " AND " . implode(" OR ", memeFilterGroup($filters)) : "");
+}
+
+// Function to parse individual components of the memelang query
 function memeParse($query) {
 	$pattern = '/^([A-Za-z0-9]*)\.?([A-Za-z0-9]*):?([A-Za-z0-9]*)?([<>=#]*)?(-?\d*\.?\d*)$/';
 	$matches = [];
@@ -42,42 +121,8 @@ function memeParse($query) {
 	}
 }
 
-function memeClause($query, &$filters) {
-	// Handle OR (|) conditions by generating complete SELECT statements and combining them with UNION
-	if (strpos($query, '|') !== false) {
-		$clauses = explode('|', $query);
-		$sqlClauses = array_map(function($clause) {
-			$subFilters = [];  // Independent filter set for each OR clause
-			$sqlPart = "SELECT m.* FROM mem m " . memeClause(trim($clause), $subFilters);
-			$filterCondition = !empty($subFilters) ? " WHERE " . implode(" OR ", groupFilters($subFilters)) : "";
-			return $sqlPart . $filterCondition;
-		}, $clauses);
-		return implode(" UNION ", $sqlClauses);
-	}
-
-	// Handle AND (&) conditions by generating JOIN with GROUP BY and HAVING
-	if (strpos($query, '&') !== false) {
-		$clauses = explode('&', $query);
-		$havingConditions = [];
-		foreach ($clauses as $clause) {
-			$result = memeParse(trim($clause));
-			$havingConditions[] = "SUM(CASE WHEN " . $result['clause'] . " THEN 1 ELSE 0 END) > 0";
-			if ($result['filter']) {
-				$filters[] = "(" . $result['filter'] . ")";
-			}
-		}
-		return "JOIN (SELECT aid FROM mem GROUP BY aid HAVING " . implode(" AND ", $havingConditions) . ") AS aids ON m.aid = aids.aid";
-	}
-
-	// Direct parsing when no nested expressions or logical operators are present
-	$result = memeParse($query);
-	if ($result['filter']) {
-		$filters[] = "(" . $result['filter'] . ")";
-	}
-	return "WHERE " . $result['clause'];
-}
-
-function groupFilters($filters) {
+// Group filters to reduce SQL complexity
+function memeFilterGroup($filters) {
 	$ridValues = [];
 	$bidValues = [];
 	$complexFilters = [];
@@ -88,7 +133,7 @@ function groupFilters($filters) {
 		} elseif (preg_match("/^\\(bid='([A-Za-z0-9]+)'\\)$/", $filter, $matches)) {
 			$bidValues[] = $matches[1];
 		} else {
-			$complexFilters[] = $filter;  // Complex terms like (rid='letter' AND bid='ord')
+			$complexFilters[] = $filter;
 		}
 	}
 
@@ -103,39 +148,70 @@ function groupFilters($filters) {
 	return array_merge($grouped, $complexFilters);
 }
 
-// Test function
-function meme2sql_test() {
-	$queries = [
-		"ant.admire:amsterdam #= 0",
-		"ant.believe:cairo",
-		"ant.believe",
-		"ant",
-		".admire",
-		":amsterdam",
-		".letter #= 2",
-		".letter > 1.9",
-		".letter >= 2.1",
-		".letter < 2.2",
-		".letter <= 2.3",
-		"ant | :cairo",
-		".admire | .believe",
-		".admire | .believe | .letter > 2",
-		".discover & .explore",
-		".admire & .believe & .letter:ord < 5",
-		".discover & .explore:amsterdam | :cairo",
-		".admire & .explore & :amsterdam | .letter:ord < 2 | :bangkok",
-		".admire & .explore & :amsterdam | .letter:ord < 2 & :bangkok"
-	];
+// SQLite3 database query function
+function memeSQLite3($sqlQuery) {
+	$db = new SQLite3(DB_PATH);
+	$results = [];
+	$queryResult = $db->query($sqlQuery);
 
-	foreach ($queries as $query) {
-		try {
-			$generated_sql = meme2sql($query);
-			echo "Query: $query\n";
-			echo "Generated SQL: $generated_sql\n\n";
-		} catch (Exception $e) {
-			echo "Error: " . $e->getMessage() . "\n\n";
-		}
+	while ($row = $queryResult->fetchArray(SQLITE3_ASSOC)) {
+		$results[] = $row;
 	}
+
+	$db->close();
+	return $results;
+}
+
+// MySQL database query function
+function memeMySQL($sqlQuery) {
+	$connection = new mysqli(DB_HOST, DB_USER, DB_PASSWORD, DB_NAME);
+	if ($connection->connect_error) {
+		throw new Exception("Connection failed: " . $connection->connect_error);
+	}
+
+	$results = [];
+	$queryResult = $connection->query($sqlQuery);
+	if ($queryResult) {
+		while ($row = $queryResult->fetch_assoc()) {
+			$results[] = $row;
+		}
+	} else {
+		throw new Exception("Query failed: " . $connection->error);
+	}
+
+	$connection->close();
+	return $results;
+}
+
+// PostgreSQL database query function
+function memePostgres($sqlQuery) {
+	$connectionString = "host=" . DB_HOST . " dbname=" . DB_NAME . " user=" . DB_USER . " password=" . DB_PASSWORD;
+	$connection = pg_connect($connectionString);
+	if (!$connection) {
+		throw new Exception("Connection failed: " . pg_last_error());
+	}
+
+	$results = [];
+	$queryResult = pg_query($connection, $sqlQuery);
+	if ($queryResult) {
+		while ($row = pg_fetch_assoc($queryResult)) {
+			$results[] = $row;
+		}
+	} else {
+		throw new Exception("Query failed: " . pg_last_error($connection));
+	}
+
+	pg_close($connection);
+	return $results;
+}
+
+// Format query results as memelang
+function memeOut($results) {
+	$memelangOutput = [];
+	foreach ($results as $row) {
+		$memelangOutput[] = "{$row['aid']}.{$row['rid']}:{$row['bid']}={$row['qnt']}";
+	}
+	return implode(";\n", $memelangOutput);
 }
 
 ?>

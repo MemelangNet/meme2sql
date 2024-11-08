@@ -24,6 +24,7 @@ ant	explore	bangkok	1
 ant	explore	cairo	1
 ant	explore	dubai	1
 ant	explore	edinburgh	0
+ant	next	bat	1
 bat	letter	ord	2
 bat	admire	amsterdam	0
 bat	admire	bangkok	1
@@ -50,6 +51,7 @@ bat	explore	bangkok	1
 bat	explore	cairo	1
 bat	explore	dubai	1
 bat	explore	edinburgh	0
+bat	next	cat	1
 cat	letter	ord	3
 cat	admire	amsterdam	0
 cat	admire	bangkok	1
@@ -76,6 +78,7 @@ cat	explore	bangkok	1
 cat	explore	cairo	1
 cat	explore	dubai	1
 cat	explore	edinburgh	0
+cat	next	deer	1
 deer	letter	ord	4
 deer	admire	amsterdam	0
 deer	admire	bangkok	1
@@ -102,6 +105,7 @@ deer	explore	bangkok	1
 deer	explore	cairo	1
 deer	explore	dubai	1
 deer	explore	edinburgh	0
+deer	next	eagle	1
 eagle	letter	ord	5
 eagle	admire	amsterdam	0
 eagle	admire	bangkok	1
