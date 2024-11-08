@@ -1,17 +1,33 @@
 import re
-import sqlite3
-import pymysql
-import psycopg2
 from typing import List, Dict, Any
 
 # Database configuration constants
-DB_TYPE = 'sqlite3'       # Default to 'sqlite3'. Options: 'sqlite3', 'mysql', 'postgres'
-DB_PATH = 'data.sqlite'   # Default path for SQLite3
+DB_TYPE = 'sqlite3'       # Options: 'sqlite3', 'mysql', 'postgres'
+DB_PATH = 'data.sqlite'   # Path for SQLite3
 DB_HOST = 'localhost'     # Host for MySQL/Postgres
 DB_USER = 'username'      # Username for MySQL/Postgres
 DB_PASSWORD = 'password'  # Password for MySQL/Postgres
 DB_NAME = 'database_name' # Database name for MySQL/Postgres
-DB_TABLE = 'meme'         # Default table name for queries
+DB_TABLE = 'meme'         # Table name for queries
+
+# Conditionally import the required database library based on DB_TYPE
+if DB_TYPE == 'sqlite3':
+    import sqlite3
+    execute_query = lambda sql_query: meme_sqlite3(sql_query)
+elif DB_TYPE == 'mysql':
+    import pymysql
+    execute_query = lambda sql_query: meme_mysql(sql_query)
+elif DB_TYPE == 'postgres':
+    import psycopg2
+    execute_query = lambda sql_query: meme_postgres(sql_query)
+else:
+    raise ValueError(f"Unsupported database type: {DB_TYPE}")
+
+# Example usage
+if __name__ == '__main__':
+    memelang_query = ".admire & .explore & :amsterdam | .letter:ord < 2 & :bangkok"
+    results = meme_query(memelang_query)
+    print(meme_out(results))
 
 # Main function to process memelang query and return results
 def meme_query(memelang_query: str) -> List[Dict[str, Any]]:
@@ -21,35 +37,23 @@ def meme_query(memelang_query: str) -> List[Dict[str, Any]]:
     try:
         # Translate memelang to SQL
         sql_query = meme_sql(memelang_query)
-        
-        # Call the appropriate database function based on DB_TYPE constant
-        if DB_TYPE == 'sqlite3':
-            return meme_sqlite3(sql_query)
-        elif DB_TYPE == 'mysql':
-            return meme_mysql(sql_query)
-        elif DB_TYPE == 'postgres':
-            return meme_postgres(sql_query)
-        else:
-            raise ValueError(f"Unsupported database type: {DB_TYPE}")
+        return execute_query(sql_query)
     except Exception as e:
         return [{"error": str(e)}]
 
 # Function to handle AND, OR conditions and translate to SQL
 def meme_sql(query: str) -> str:
-    # If there are multiple OR clauses, separate each one with a UNION and wrap each in a SELECT statement
     if '|' in query:
         clauses = query.split('|')
         sql_clauses = [f"SELECT m.* FROM {DB_TABLE} m {meme_junction(clause.strip())}" for clause in clauses]
         return " UNION ".join(sql_clauses)
 
-    # If no OR, treat it as a single SELECT query
     return f"SELECT m.* FROM {DB_TABLE} m {meme_junction(query.strip())}"
 
 # Handle single clause logic for both AND (&) conditions and basic WHERE filtering
 def meme_junction(query: str) -> str:
     filters = []
 
-    # Handle AND conditions
     if '&' in query:
         clauses = query.split('&')
         having_conditions = []
@@ -63,7 +67,6 @@ def meme_junction(query: str) -> str:
                f"{' AND '.join(having_conditions)}) AS aids ON m.aid = aids.aid" + \
                (f" WHERE {' OR '.join(meme_filter_group(filters))}" if filters else "")
 
-    # No AND, so it's a single WHERE condition
     result = meme_parse(query)
     if result['filter']:
         filters.append(f"({result['filter']})")
@@ -151,9 +154,3 @@ def meme_out(results: List[Dict[str, Any]]) -> str:
         f"{row['aid']}.{row['rid']}:{row['bid']}={row['qnt']}" for row in results
     ]
     return ";\n".join(memelang_output)
-
-# Example usage
-if __name__ == '__main__':
-    memelang_query = ".admire & .explore & :amsterdam | .letter:ord < 2 & :bangkok"
-    results = meme_query(memelang_query)
-    print(meme_out(results))

@@ -4,9 +4,10 @@ This BETA repo is to help developers build tools to convert [Memelang](https://m
 
 ## Files
 * *data-gen.py* is used to generate the data
-* *data.csv* sample ARBQ data in tab-seperated format
+* *data.csv* sample ARBQ data in tab-separated format
 * *data.mem* sample ARBQ data in Memelang format
 * *data.sql* sample ARBQ data in SQL format
+* *data.sqlite* sample ARBQ data in an SQLite binary file
 * *meme2sql.java* Java program to convert Memelang to SQL
 * *meme2sql.js* Javascript program to convert Memelang to SQL
 * *meme2sql.php* PHP program to convert Memelang to SQL
